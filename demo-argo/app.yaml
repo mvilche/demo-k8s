@@ -71,7 +71,7 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: game-config
+  name: pepepepepee
 data:
   game.properties: |
     enemies=aliens
@@ -85,4 +85,4 @@ data:
     color.good=purple
     color.bad=yellow
     allow.textmode=true
-    how.nice.to.look=fairlyNice    
+    how.nice.to.look=fairlyNice
