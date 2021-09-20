@@ -20,7 +20,6 @@ pipelineJob('demo-k8s') {
                 git {
                     remote {
                         url('https://github.com/mvilche/demo-k8s.git')
-                        credentials('jenkins-operator')
                     }
                     branches('*/master')
                 }
