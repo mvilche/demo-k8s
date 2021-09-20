@@ -1,0 +1,31 @@
+#!/usr/bin/env groovy
+
+pipelineJob('demo-k8s') {
+    displayName('Job demo k8s - Martin')
+
+    logRotator {
+        numToKeep(10)
+        daysToKeep(30)
+    }
+
+    configure { project ->
+        project / 'properties' / 'org.jenkinsci.plugins.workflow.job.properties.DurabilityHintJobProperty' {
+            hint('PERFORMANCE_OPTIMIZED')
+        }
+    }
+
+    definition {
+        cpsScm {
+            scm {
+                git {
+                    remote {
+                        url('https://github.com/mvilche/demo-k8s.git')
+                        credentials('jenkins-operator')
+                    }
+                    branches('*/master')
+                }
+            }
+            scriptPath('cicd/pipelines/k8s.jenkins')
+        }
+    }
+}

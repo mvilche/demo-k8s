@@ -1,0 +1,90 @@
+#!/usr/bin/env groovy
+
+def label = "k8s-${UUID.randomUUID().toString()}"
+def home = "/home/jenkins"
+def workspace = "${home}/workspace/build-jenkins-operator"
+def workdir = "${workspace}/src/github.com/jenkinsci/kubernetes-operator/"
+
+pipeline {
+    
+
+  agent {
+    kubernetes {
+      defaultContainer 'jnlp'
+      yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+labels:
+  component: ci
+spec:
+  # Use service account that can deploy to all namespaces
+  serviceAccountName: jenkins
+  containers:
+  - name: kubetools
+    image: ${params.BASE_IMAGE}
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - mountPath: /var/run/docker.sock
+      name: docker-sock
+  volumes:
+    - name: docker-sock
+      hostPath:
+        path: /var/run/docker.sock
+"""
+}
+   }
+  stages {
+      
+    stage('Build with s2i') {
+      steps {
+        container('kubetools') {
+            git branch: "${params.GIT_BRANCH}",
+                credentialsId: "${params.CREDENTIAL_ID_GIT}",
+                url: "${params.GIT_REPO}"
+          script {        
+          GIT_COMMIT_HASH = sh (script: """git rev-parse --short HEAD""", returnStdout:true)
+          GIT_COMMIT_MESSAGE = sh (script: """git log --format=%B -n 1 ${GIT_COMMIT_HASH}""", returnStdout:true)
+          }
+          
+          sh """
+           echo "COMMIT HASH: ${GIT_COMMIT_HASH}"
+           echo "GIT_COMMIT_MESSAGE: ${GIT_COMMIT_MESSAGE}"
+           s2i build . ${params.BUILDER_IMAGE} ${params.DOCKER_REGISTRY}/${params.APP_NAME}:latest --incremental --loglevel=1
+                                                """
+        }
+      }
+    }
+    stage('Push image to registry') {
+      steps {
+        container('kubetools') {
+          sh """
+             docker tag ${params.DOCKER_REGISTRY}/${params.APP_NAME}:latest ${params.DOCKER_REGISTRY}/${params.APP_NAME}:${GIT_COMMIT_HASH}
+             docker push ${params.DOCKER_REGISTRY}/${params.APP_NAME}:${GIT_COMMIT_HASH}
+          """
+        }
+      }
+    }
+    
+      stage('Update deployment') {
+          steps {
+        container('kubetools') {      
+    withKubeConfig([credentialsId: "${params.CREDENTIAL_ID}",
+                    serverUrl: "${params.KUBE_SERVER}",
+                    namespace: "${params.NAMESPACE}"
+                    ]) {
+        sh """
+      kubectl set image deployment/${params.DEPLOYMENT_NAME} ${params.DEPLOYMENT_NAME}=${params.DOCKER_REGISTRY}/${params.APP_NAME}:${GIT_COMMIT_HASH}
+      kubectl set env deployment/${params.DEPLOYMENT_NAME} GIT_COMMIT="${GIT_COMMIT_HASH}" GIT_REPO="${GIT_REPO}" GIT_BRANCH="${GIT_BRANCH}" GIT_COMMIT_MESSAGE="${GIT_COMMIT_MESSAGE}"
+      kubectl annotate deploy ${params.DEPLOYMENT_NAME} GIT_COMMIT="${GIT_COMMIT_HASH}" GIT_REPO="${GIT_REPO}" GIT_BRANCH="${GIT_BRANCH}" GIT_COMMIT_MESSAGE="${GIT_COMMIT_MESSAGE}"
+      kubectl rollout restart deployment/${params.DEPLOYMENT_NAME} 
+      kubectl rollout status -w deployment/${params.DEPLOYMENT_NAME}
+      """
+    }
+  }
+  }
+      }
+  } 
+}
